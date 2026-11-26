@@ -1,0 +1,6 @@
+EmployeeID,Name,Department,City,Age,Salary,Experience
+101,Rahul,IT,Indore,25,45000,2
+102,Aman,HR,Bhopal,28,55000,5
+103,Jay,IT,Indore,24,42000,2
+104,Banti,Sales,Ujjain,30,65000,7
+105,Rohit,IT,Indore,,50000,3

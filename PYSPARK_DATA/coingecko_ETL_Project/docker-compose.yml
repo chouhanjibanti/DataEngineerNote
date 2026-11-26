@@ -1,0 +1,148 @@
+version: '3.8'
+
+# ============================================================
+# COMBINED Docker Compose — Kafka + Airflow
+# CoinGecko ETL Project
+#
+# SERVICES STARTED:
+#   Kafka Stack  → ZooKeeper, Kafka Broker, Kafka UI
+#   Airflow Stack → PostgreSQL, Airflow Init, Webserver, Scheduler
+#
+# PORTS:
+#   Kafka Broker  → localhost:9092   (PySpark / Producer connects here)
+#   Kafka UI      → http://localhost:8080   (browse topics & messages)
+#   Airflow UI    → http://localhost:8081   (admin / admin)
+#
+# COMMANDS:
+#   Start all  :  docker-compose up -d
+#   Stop all   :  docker-compose down
+#   Logs all   :  docker-compose logs -f
+#   Logs one   :  docker-compose logs -f kafka
+#   Status     :  docker-compose ps
+#   Restart one:  docker-compose restart airflow-scheduler
+# ============================================================
+
+# ── Shared Airflow config block (reused by webserver + scheduler) ──
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.7.0
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__WEBSERVER__SECRET_KEY: "coingecko_secret_key_123"
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags          # your DAG files
+    - ./airflow/scripts:/opt/airflow/scripts    # your ETL scripts
+    - ./airflow/logs:/opt/airflow/logs          # task logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+
+services:
+
+  # ============================================================
+  # KAFKA STACK
+  # ============================================================
+
+  # ── ZooKeeper — Kafka cluster coordinator ─────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    restart: unless-stopped
+
+  # ── Kafka Broker — message store ──────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168          # keep messages 7 days
+      KAFKA_MESSAGE_MAX_BYTES: 10485760       # 10MB max message
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      retries: 5
+
+  # ── Kafka UI — browse topics at http://localhost:8080 ─────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka_ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    restart: unless-stopped
+
+
+  # ============================================================
+  # AIRFLOW STACK
+  # ============================================================
+
+  # ── PostgreSQL — Airflow metadata database ────────────────
+  postgres:
+    image: postgres:13
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Airflow Init — runs ONCE to set up DB and admin user ──
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create
+          --username admin
+          --password admin
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@coingecko.com &&
+        echo 'Airflow initialized successfully'
+      "
+    restart: "no"           # only runs once, does not restart
+
+  # ── Airflow Webserver — UI at http://localhost:8081 ───────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow_webserver
+    ports:
+      - "8081:8080"         # 8081 to avoid conflict with Kafka UI on 8080
+    command: webserver
+    restart: unless-stopped
+
+  # ── Airflow Scheduler — triggers DAGs on schedule ─────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow_scheduler
+    command: scheduler
+    restart: unless-stopped

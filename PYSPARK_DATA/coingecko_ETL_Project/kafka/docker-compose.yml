@@ -1,0 +1,191 @@
+
+# # Docker Compose — Kafka + ZooKeeper + Kafka UI
+# # Start: docker compose up -d
+# # Stop:  docker compose down
+
+# services:
+#   # ZooKeeper
+#   zookeeper:
+#     image: confluentinc/cp-zookeeper:7.4.0
+#     environment:
+#       ZOOKEEPER_CLIENT_PORT: 2181
+#       ZOOKEEPER_TICK_TIME: 2000
+#     ports:
+#       - "2181:2181"
+
+#   # Kafka Broker
+#   kafka:
+#     image: confluentinc/cp-kafka:7.4.0
+#     depends_on:
+#       - zookeeper
+#     ports:
+#       - "9092:9092"
+#     environment:
+#       KAFKA_BROKER_ID: 1
+#       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+#       KAFKA_LOG_RETENTION_HOURS: 168
+#       KAFKA_MESSAGE_MAX_BYTES: 10485760
+
+#   # Kafka UI — http://localhost:8080
+#   kafka-ui:
+#     image: provectuslabs/kafka-ui:latest
+#     depends_on:
+#       - kafka
+#     ports:
+#       - "8080:8080"
+#     environment:
+#       KAFKA_CLUSTERS_0_NAME: local
+#       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+
+# =============================================================================
+
+
+# ============================================================
+# Docker Compose - Kafka + ZooKeeper + Kafka UI
+# ============================================================
+#
+# PURPOSE:
+# This file starts three services:
+# 1. ZooKeeper  -> Manages Kafka broker coordination.
+# 2. Kafka      -> Handles message production and consumption.
+# 3. Kafka UI   -> Provides a browser-based dashboard to
+#                  monitor Kafka topics and messages.
+#
+# START ALL SERVICES:
+# docker compose up -d
+#
+# STOP ALL SERVICES:
+# docker compose down
+#
+# CHECK RUNNING CONTAINERS:
+# docker compose ps
+#
+# VIEW LOGS:
+# docker compose logs -f
+#
+# KAFKA UI:
+# http://localhost:8080
+#
+# KAFKA BROKER:
+# localhost:9092
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # 1. ZOOKEEPER SERVICE
+  # ----------------------------------------------------------
+  # ZooKeeper manages Kafka broker coordination.
+  # It helps Kafka maintain broker metadata and cluster state.
+  # This configuration uses ZooKeeper-based Kafka (not KRaft).
+
+  zookeeper:
+
+    # Official Confluent ZooKeeper Docker image, version 7.4.0
+    image: confluentinc/cp-zookeeper:7.4.0
+
+    # Environment variables used to configure ZooKeeper
+    environment:
+
+      # Port on which ZooKeeper accepts client connections
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+      # Time interval in milliseconds used for ZooKeeper heartbeat
+      ZOOKEEPER_TICK_TIME: 2000
+
+    # Maps container port 2181 to host port 2181
+    # Format: HOST_PORT:CONTAINER_PORT
+    ports:
+      - "2181:2181"
+
+
+  # ----------------------------------------------------------
+  # 2. KAFKA BROKER SERVICE
+  # ----------------------------------------------------------
+  # Kafka is a distributed event-streaming platform.
+  # It receives messages from Producers and makes them
+  # available to Consumers through Topics.
+
+  kafka:
+
+    # Official Confluent Kafka Docker image, version 7.4.0
+    image: confluentinc/cp-kafka:7.4.0
+
+    # Kafka starts after the ZooKeeper container is started
+    # Note: depends_on does not guarantee ZooKeeper is ready.
+    depends_on:
+      - zookeeper
+
+    # Exposes Kafka broker port to the local machine
+    # Python producer/consumer can connect using localhost:9092
+    ports:
+      - "9092:9092"
+
+    # Kafka broker configuration
+    environment:
+
+      # Unique ID assigned to this Kafka broker
+      KAFKA_BROKER_ID: 1
+
+      # Tells Kafka where ZooKeeper is running
+      # Docker service name "zookeeper" is used for communication
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # Address advertised to clients running on the host machine
+      # Clients connect using localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+
+      # Number of replicas for Kafka's internal offsets topic
+      # Use 1 because we have only one Kafka broker
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+      # Automatically creates a topic if it does not exist
+      # when a producer or consumer accesses it
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      # Kafka retains messages for 168 hours (7 days)
+      # After this period, eligible old messages are deleted
+      KAFKA_LOG_RETENTION_HOURS: 168
+
+      # Maximum allowed size of a Kafka message
+      # 10485760 bytes = 10 MB
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+
+
+  # ----------------------------------------------------------
+  # 3. KAFKA UI SERVICE
+  # ----------------------------------------------------------
+  # Kafka UI provides a graphical dashboard.
+  # We can use it to:
+  # - View Kafka clusters
+  # - Create and view topics
+  # - Inspect messages
+  # - Monitor brokers
+  # - Check consumer groups
+
+  kafka-ui:
+
+    # Kafka UI Docker image
+    image: provectuslabs/kafka-ui:latest
+
+    # Kafka UI starts after the Kafka container is started
+    depends_on:
+      - kafka
+
+    # Exposes Kafka UI on browser port 8080
+    ports:
+      - "8080:8080"
+
+    # Kafka UI configuration
+    environment:
+
+      # Display name of the Kafka cluster in the dashboard
+      KAFKA_CLUSTERS_0_NAME: local
+
+      # Kafka UI connects to Kafka using its Docker service name
+      # Inside Docker, use kafka:9092 instead of localhost:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092

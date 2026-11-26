@@ -1,0 +1,75 @@
+version: '3.8'
+
+# ============================================================
+# Docker Compose — Apache Airflow
+# Starts: Airflow Webserver + Scheduler + PostgreSQL
+#
+# Run  :  docker-compose up -d
+# Stop :  docker-compose down
+# UI   :  http://localhost:8081   (admin / admin)
+# NOTE :  Using port 8081 to avoid conflict with Kafka UI (8080)
+# ============================================================
+
+# ── Shared Airflow config (reused by webserver + scheduler) ─
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.7.0
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"        # hide built-in example DAGs
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"  # auto-enable new DAGs
+    AIRFLOW__WEBSERVER__SECRET_KEY: "coingecko_secret_key_123"
+  volumes:
+    - ./dags:/opt/airflow/dags                   # DAG files go here
+    - ./scripts:/opt/airflow/scripts             # ETL scripts go here
+    - ./logs:/opt/airflow/logs                   # Airflow task logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  # ── PostgreSQL — stores DAG runs, task states, logs ───────
+  postgres:
+    image: postgres:13
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  # ── One-time init — creates DB tables + admin user ────────
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create
+          --username admin
+          --password admin
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@coingecko.com
+      "
+
+  # ── Webserver — serves the UI at localhost:8081 ───────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow_webserver
+    ports:
+      - "8081:8080"
+    command: webserver
+    restart: unless-stopped
+
+  # ── Scheduler — triggers DAGs on their schedule ───────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow_scheduler
+    command: scheduler
+    restart: unless-stopped
